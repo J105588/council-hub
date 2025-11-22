@@ -1,1 +1,151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Console - Council Hub</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-secondary mb-4">
+        <div class="container">
+            <span class="navbar-brand">Council Hub <span class="badge bg-dark">ADMIN</span></span>
+            <button id="logoutBtn" class="btn btn-outline-light btn-sm">ログアウト</button>
+        </div>
+    </nav>
 
+    <div class="container">
+        <!-- 1. パスワード追加フォーム -->
+        <div class="card mb-4 p-3 shadow-sm">
+            <h5>➕ 新しいパスワードを追加</h5>
+            <form id="addSecretForm" class="row g-2">
+                <div class="col-md-3"><input type="text" class="form-control" id="serviceName" placeholder="サービス名 (例: Twitter)" required></div>
+                <div class="col-md-3"><input type="text" class="form-control" id="serviceUser" placeholder="ID / Email" required></div>
+                <div class="col-md-3"><input type="text" class="form-control" id="servicePass" placeholder="パスワード" required></div>
+                <div class="col-md-3"><button type="submit" class="btn btn-success w-100">追加</button></div>
+            </form>
+        </div>
+
+        <!-- 2. 権限管理マトリクス -->
+        <div class="card p-3 shadow-sm">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5>🔐 共有権限管理</h5>
+                <button class="btn btn-sm btn-outline-primary" id="refreshBtn">更新</button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover table-bordered text-center align-middle" id="matrixTable">
+                    <thead class="table-light" id="tableHead">
+                        <!-- JSでユーザー名を列として生成 -->
+                    </thead>
+                    <tbody id="tableBody">
+                        <!-- JSでパスワードを行として生成 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { auth, db, signOut, onAuthStateChanged, collection, addDoc, getDocs, updateDoc, doc } from './firebase-config.js';
+
+        let users = []; // ユーザー一覧キャッシュ
+        let secrets = []; // パスワード一覧キャッシュ
+
+        onAuthStateChanged(auth, (user) => {
+            if (!user) window.location.href = "index.html";
+            // ここで簡易的にAdminチェック（実際はCloud Functions等でやるべき）
+            if (user.email !== "admin@school.com") {
+                alert("管理者権限がありません");
+                window.location.href = "dashboard.html";
+            }
+            initAdmin();
+        });
+
+        document.getElementById('logoutBtn').addEventListener('click', () => signOut(auth));
+        document.getElementById('refreshBtn').addEventListener('click', initAdmin);
+
+        // 初期化：データ取得と描画
+        async function initAdmin() {
+            // ユーザー取得
+            const usersSnap = await getDocs(collection(db, "users"));
+            users = [];
+            usersSnap.forEach(d => users.push(d.data()));
+
+            // パスワード取得
+            const secretsSnap = await getDocs(collection(db, "secrets"));
+            secrets = [];
+            secretsSnap.forEach(d => secrets.push({ id: d.id, ...d.data() }));
+
+            renderMatrix();
+        }
+
+        // マトリクス表の描画
+        function renderMatrix() {
+            const thead = document.getElementById('tableHead');
+            const tbody = document.getElementById('tableBody');
+            
+            // ヘッダー生成 (サービス名 + ユーザー列)
+            let headerHTML = `<tr><th>サービス名</th>`;
+            users.forEach(u => {
+                headerHTML += `<th>${u.email.split('@')[0]}<br><span class="small text-muted">(${u.role})</span></th>`;
+            });
+            headerHTML += `</tr>`;
+            thead.innerHTML = headerHTML;
+
+            // ボディ生成 (行ごとにサービス)
+            let bodyHTML = '';
+            secrets.forEach(s => {
+                bodyHTML += `<tr><td class="fw-bold text-start">${s.serviceName}</td>`;
+                users.forEach(u => {
+                    // 権限があるかチェック
+                    const isChecked = s.allowedUsers && s.allowedUsers.includes(u.uid) ? 'checked' : '';
+                    bodyHTML += `
+                        <td>
+                            <input type="checkbox" class="form-check-input" 
+                                onchange="togglePerm('${s.id}', '${u.uid}', this.checked)" ${isChecked}>
+                        </td>`;
+                });
+                bodyHTML += `</tr>`;
+            });
+            tbody.innerHTML = bodyHTML;
+        }
+
+        // パスワード追加処理
+        document.getElementById('addSecretForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('serviceName').value;
+            const user = document.getElementById('serviceUser').value;
+            const pass = document.getElementById('servicePass').value;
+
+            await addDoc(collection(db, "secrets"), {
+                serviceName: name,
+                username: user,
+                password: pass,
+                allowedUsers: [] // 最初は誰も見れない
+            });
+            
+            document.getElementById('addSecretForm').reset();
+            initAdmin();
+        });
+
+        // 権限切り替え処理 (Global登録)
+        window.togglePerm = async (secretId, userId, isChecked) => {
+            const secret = secrets.find(s => s.id === secretId);
+            let newAllowed = secret.allowedUsers || [];
+
+            if (isChecked) {
+                if (!newAllowed.includes(userId)) newAllowed.push(userId);
+            } else {
+                newAllowed = newAllowed.filter(id => id !== userId);
+            }
+
+            // DB更新
+            await updateDoc(doc(db, "secrets", secretId), {
+                allowedUsers: newAllowed
+            });
+            
+            // ローカルデータも更新（再描画防止のため）
+            secret.allowedUsers = newAllowed;
+        };
+    </script>
+</body>
+</html>
