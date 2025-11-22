@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Council Hub Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #2c3e50; height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .card { width: 100%; max-width: 400px; border: none; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+        .btn-primary { background-color: #34495e; border: none; }
+        .btn-primary:hover { background-color: #2c3e50; }
+    </style>
+</head>
+<body>
+    <div class="card p-4">
+        <h3 class="text-center mb-4 fw-bold text-secondary">Council Hub</h3>
+        <div id="alertMsg" class="alert alert-danger d-none"></div>
+        
+        <form id="loginForm">
+            <div class="mb-3">
+                <label class="form-label">Email</label>
+                <input type="email" id="email" class="form-control" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Password</label>
+                <input type="password" id="password" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100 py-2">ログイン</button>
+        </form>
+        <hr>
+        <!-- テスト運用用に登録ボタンを配置 -->
+        <p class="text-center small text-muted">アカウントがない場合は登録</p>
+        <form id="signupForm">
+            <div class="input-group mb-3">
+                <input type="email" id="newEmail" class="form-control" placeholder="Email" required>
+                <input type="password" id="newPass" class="form-control" placeholder="Pass" required>
+                <button class="btn btn-outline-secondary" type="submit">登録</button>
+            </div>
+        </form>
+    </div>
+
+    <script type="module">
+        import { auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword, setDoc, doc } from './firebase-config.js';
+
+        // ログイン処理
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const pass = document.getElementById('password').value;
+            
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, email, pass);
+                // 管理者（特定のメアド）ならadminへ、それ以外はdashboardへ
+                // ※実運用ではカスタムクレームやDBのroleフィールドで判定推奨
+                if (email === "admin@school.com") { 
+                    window.location.href = "admin.html";
+                } else {
+                    window.location.href = "dashboard.html";
+                }
+            } catch (error) {
+                const alert = document.getElementById('alertMsg');
+                alert.textContent = "ログイン失敗: " + error.message;
+                alert.classList.remove('d-none');
+            }
+        });
+
+        // 新規登録処理（ユーザーDBも作成）
+        document.getElementById('signupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('newEmail').value;
+            const pass = document.getElementById('newPass').value;
+            try {
+                const cred = await createUserWithEmailAndPassword(auth, email, pass);
+                // ユーザー一覧管理のためFirestoreに記録
+                await setDoc(doc(db, "users", cred.user.uid), {
+                    email: email,
+                    uid: cred.user.uid,
+                    role: "member"
+                });
+                alert("登録完了。ログインしてください。");
+            } catch (error) {
+                alert("登録エラー: " + error.message);
+            }
+        });
+    </script>
+</body>
+</html>
