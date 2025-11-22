@@ -22,7 +22,8 @@
     </div>
 
     <script type="module">
-        import { auth, db, signOut, onAuthStateChanged, getDocs, collection } from './firebase-config.js';
+        // 【修正1】 query と where を追加インポート
+        import { auth, db, signOut, onAuthStateChanged, getDocs, collection, query, where } from './firebase-config.js';
 
         onAuthStateChanged(auth, async (user) => {
             if (!user) { window.location.href = "index.html"; return; }
@@ -35,13 +36,16 @@
             const container = document.getElementById('passwordList');
             container.innerHTML = "";
 
-            const querySnapshot = await getDocs(collection(db, "secrets"));
-            let count = 0;
+            try {
+                // 【修正2】「自分が見れるものだけください」とサーバーに要求する書き方に変更
+                // allowedUsers 配列の中に、自分の uid が含まれているデータを探す
+                const q = query(collection(db, "secrets"), where("allowedUsers", "array-contains", uid));
+                
+                const querySnapshot = await getDocs(q);
+                let count = 0;
 
-            querySnapshot.forEach((doc) => {
-                const data = doc.data();
-                // 【重要】アクセス権限チェック: allowedUsers配列に自分のUIDがあるか
-                if (data.allowedUsers && data.allowedUsers.includes(uid)) {
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
                     count++;
                     const card = `
                         <div class="col-md-4 mb-3">
@@ -59,13 +63,28 @@
                         </div>
                     `;
                     container.insertAdjacentHTML('beforeend', card);
-                }
-            });
+                });
 
-            if(count === 0) container.innerHTML = '<p class="text-center text-muted">共有されているパスワードはありません。</p>';
+                if(count === 0) {
+                    container.innerHTML = '<p class="text-center text-muted">共有されているパスワードはありません。</p>';
+                }
+            
+            } catch (error) {
+                console.error("Error:", error);
+                
+                // もしインデックスエラーが出た場合、リンクを表示する処理
+                if (error.message.includes("index")) {
+                    container.innerHTML = `<p class="text-center text-warning">
+                        初回設定が必要です。<br>
+                        ブラウザのコンソール(F12キー)を開き、表示されているURLをクリックしてインデックスを作成してください。
+                    </p>`;
+                } else {
+                    container.innerHTML = `<p class="text-center text-danger">データ取得エラー: ${error.message}</p>`;
+                }
+            }
         }
 
-        // グローバル関数として定義（HTML内onclick対応）
+        // グローバル関数
         window.togglePass = (id) => {
             const input = document.getElementById(`pass-${id}`);
             input.type = input.type === "password" ? "text" : "password";
